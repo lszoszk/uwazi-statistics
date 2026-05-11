@@ -33,6 +33,20 @@ SKIP_TYPES = {"text", "markdown", "link", "image", "media", "preview",
 SYSTEM_PROPERTIES = {"text_search", "creationDate", "editDate"}
 
 
+def pretty_label(name: str) -> str:
+    """Turn an Uwazi property name into a readable card title.
+
+    Inherited (denormalised) relationship fields use a triple-underscore
+    separator: `state_under_review___regional_group`. Split those on the
+    separator first, then format each segment, then join with " · " so the
+    parent/child relationship reads naturally.
+    """
+    parts = name.split("___")
+    return " · ".join(
+        seg.replace("_", " ").strip().title() or seg for seg in parts
+    )
+
+
 @dataclass(frozen=True)
 class Field:
     name: str           # property `name` (JSON key in metadata)
@@ -54,7 +68,7 @@ def parse_templates(templates: list[dict]) -> list[Field]:
                 continue
             fields.append(Field(
                 name=name,
-                label=prop.get("label") or name.replace("_", " ").title(),
+                label=prop.get("label") or pretty_label(name),
                 type=prop.get("type") or "text",
                 template_id=tid,
                 template_name=tname,
@@ -137,7 +151,7 @@ def discover_profile_from_df(df: pd.DataFrame, *, max_charts: int = 12) -> dict:
             elif current is None:
                 # value-only — likely a text/numeric, skip in v1
                 field_kinds[key] = "skip"
-            field_labels.setdefault(key, key.replace("_", " ").title())
+            field_labels.setdefault(key, pretty_label(key))
 
     categorical = [(k, field_labels[k]) for k, v in field_kinds.items() if v == "categorical"]
     multi = [(k, field_labels[k]) for k, v in field_kinds.items() if v == "multi"]
@@ -145,3 +159,50 @@ def discover_profile_from_df(df: pd.DataFrame, *, max_charts: int = 12) -> dict:
            "multi": multi[:max_charts // 2],
            "date": []}
     return out
+
+
+def merge_profiles(*profiles: dict, max_charts: int = 12) -> dict:
+    """Merge multiple profile dicts (e.g. schema-driven + DF-inferred).
+
+    Earlier profiles take precedence for labels — pass the authoritative
+    one first. Duplicate field names are kept only on first occurrence.
+    Trims to `max_charts` keeping a rough balance: categorical ≥ multi ≥ date.
+    """
+    seen: set[str] = set()
+    cat: list[tuple[str, str]] = []
+    multi: list[tuple[str, str]] = []
+    date: list[tuple[str, str]] = []
+    for p in profiles:
+        for n, l in p.get("categorical", ()):
+            if n not in seen:
+                seen.add(n); cat.append((n, l))
+        for n, l in p.get("multi", ()):
+            if n not in seen:
+                seen.add(n); multi.append((n, l))
+        for n, l in p.get("date", ()):
+            if n not in seen:
+                seen.add(n); date.append((n, l))
+    # Distribute the cap proportionally — at least 1 of each if present.
+    return _trim_profile(cat, multi, date, max_charts)
+
+
+def _trim_profile(cat, multi, date, max_charts):
+    """Trim to max_charts, interleaving so we don't run out of one kind."""
+    combined = []
+    iters = [iter(cat), iter(multi), iter(date)]
+    keep = [True, True, True]
+    while any(keep) and len(combined) < max_charts:
+        for i, it in enumerate(iters):
+            if not keep[i]:
+                continue
+            try:
+                combined.append((i, next(it)))
+                if len(combined) >= max_charts:
+                    break
+            except StopIteration:
+                keep[i] = False
+    return {
+        "categorical": [v for k, v in combined if k == 0],
+        "multi":       [v for k, v in combined if k == 1],
+        "date":        [v for k, v in combined if k == 2],
+    }

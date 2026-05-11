@@ -40,11 +40,13 @@ class FetchConfig:
     max_records: int | None = None  # for debug — stop early
 
 
-def _make_session(user_agent: str) -> requests.Session:
+def _make_session(user_agent: str, language: str = DEFAULT_LANGUAGE) -> requests.Session:
     s = requests.Session()
     s.headers.update({
         "User-Agent": user_agent,
         "Accept": "application/json",
+        # Uwazi rejects `?language=` on /api/search; use Accept-Language instead.
+        "Accept-Language": language,
     })
     return s
 
@@ -67,7 +69,7 @@ def _get_with_retry(session: requests.Session, url: str, **kwargs) -> requests.R
 
 def fetch_templates(config: FetchConfig) -> list[dict]:
     """Return the list of templates (entity schemas) on this instance."""
-    session = _make_session(config.user_agent)
+    session = _make_session(config.user_agent, config.language)
     r = _get_with_retry(session, f"{config.instance_url}/api/templates")
     payload = r.json()
     # Uwazi returns {"rows": [...]}
@@ -76,7 +78,7 @@ def fetch_templates(config: FetchConfig) -> list[dict]:
 
 def fetch_entities(config: FetchConfig) -> pd.DataFrame:
     """Paginate through /api/search until empty. Returns one DataFrame."""
-    session = _make_session(config.user_agent)
+    session = _make_session(config.user_agent, config.language)
     rows: list[dict] = []
     offset = 0
 
@@ -86,7 +88,7 @@ def fetch_entities(config: FetchConfig) -> pd.DataFrame:
     probe = _get_with_retry(
         session,
         f"{config.instance_url}/api/search",
-        params={"limit": 1, "language": config.language},
+        params={"limit": 1},
     ).json()
     total = probe.get("totalRows")
     pbar = tqdm(total=total if isinstance(total, int) else None, unit="rec", desc="fetch")
@@ -95,7 +97,6 @@ def fetch_entities(config: FetchConfig) -> pd.DataFrame:
         params = {
             "limit": config.batch_size,
             "from": offset,
-            "language": config.language,
         }
         r = _get_with_retry(session, f"{config.instance_url}/api/search", params=params)
         batch = r.json().get("rows", [])
