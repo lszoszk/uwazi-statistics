@@ -25,6 +25,7 @@ def render_dashboard(
     charts: list[dict],
     instance_url: str,
     total_entities: int,
+    kpis: list[dict] | None = None,
     template_name: str = "dashboard.html.j2",
 ) -> str:
     env = _env()
@@ -34,6 +35,7 @@ def render_dashboard(
         charts_json=json.dumps(charts, ensure_ascii=False),
         instance_url=instance_url,
         total_entities=total_entities,
+        kpis=kpis or [],
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 

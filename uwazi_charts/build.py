@@ -16,20 +16,18 @@ from pathlib import Path
 import pandas as pd
 
 from uwazi_charts import charts as charts_mod
-from uwazi_charts import flatten
+from uwazi_charts import discover, flatten
 from uwazi_charts.fetch import load_cache
 from uwazi_charts.render import render_dashboard, write_dashboard
 
-# Field → human title for the UPR Info Database. Easy to override via CLI later
-# or auto-derive from `/api/templates` once we wire schema discovery in.
+# Fallback profile if /api/templates is unreachable AND no fields are found
+# by the schema-less inference. Tuned to the UPR Info Database shape so the
+# `--sample` and "first-run-against-UPR" flows produce something on screen.
 UPR_INFO_DEFAULTS = {
-    "categorical": [
-        ("regional_group", "Regional group"),
-    ],
-    "multi": [
-        ("organisations", "Organisations"),
-        ("country_code",  "Country code"),
-    ],
+    "categorical": [("regional_group", "Regional group")],
+    "multi":       [("organisations", "Organisations"),
+                    ("country_code",  "Country code")],
+    "date":        [],
 }
 
 
@@ -47,8 +45,24 @@ def build_html_from_df(
     df: pd.DataFrame,
     *,
     instance_url: str,
-    profile: dict = UPR_INFO_DEFAULTS,
+    profile: dict | None = None,
 ) -> str:
+    """Render the full dashboard HTML.
+
+    If `profile` is None we infer one from the DataFrame's metadata column
+    via `discover.discover_profile_from_df()`. Caller can also pass an
+    explicit profile (e.g. from `discover.build_profile(templates)`) to
+    use schema-driven discovery instead.
+    """
+    if profile is None:
+        inferred = discover.discover_profile_from_df(df)
+        # If inference found nothing usable, fall back to UPR Info defaults
+        # (mostly relevant for the synthetic fixture).
+        if not any(inferred.get(k) for k in ("categorical", "multi", "date")):
+            profile = UPR_INFO_DEFAULTS
+        else:
+            profile = inferred
+
     df = _prepare(df, profile)
     chart_list = charts_mod.auto_charts_from_df(
         df,
@@ -56,10 +70,12 @@ def build_html_from_df(
         multi=profile.get("multi", []),
         has_year=True,
     )
+    kpis = charts_mod.compute_kpis(df)
     return render_dashboard(
         charts=chart_list,
         instance_url=instance_url,
         total_entities=int(df.shape[0]),
+        kpis=kpis,
     )
 
 

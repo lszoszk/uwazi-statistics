@@ -53,3 +53,17 @@ def test_end_to_end_html(tmp_path: Path):
     out.write_text(html)
     assert out.exists()
     assert out.stat().st_size > 2000  # not a stub
+
+
+def test_kpi_strip_present(tmp_path: Path):
+    df = make_sample(120)
+    html = build_html_from_df(df, instance_url="https://example.org")
+    # KPI strip + at least the two universal stats
+    assert 'class="kpis"' in html
+    assert "Entities" in html
+    assert "120" in html
+    # editorial branding cue (UHRI-style topbar)
+    assert "UWAZI" in html
+    assert "aggregate" in html
+    # the chartable fields end up in numbered cards
+    assert 'class="idx"' in html

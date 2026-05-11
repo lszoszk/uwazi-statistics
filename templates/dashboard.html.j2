@@ -3,93 +3,224 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Uwazi aggregate dashboard</title>
+  <title>Uwazi · aggregate dashboard</title>
+
+  <!-- Editorial typography — Source Serif 4 for body, IBM Plex Mono for meta.
+       Pinned versions via Google Fonts; safe to swap to self-hosted later. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
   <style>
-    :root { --ink:#1a1a1a; --dim:#666; --line:#ddd; --paper:#fafaf7; --accent:#b86c2c; }
-    *,*::before,*::after { box-sizing: border-box; }
-    body { margin:0; font:14px/1.55 system-ui, sans-serif; color:var(--ink); background:var(--paper); }
-    header { padding:24px 32px; border-bottom:1px solid var(--line); background:#fff; }
-    header h1 { margin:0 0 4px; font-size:18px; font-weight:600; }
-    header .meta { font:11px/1.5 ui-monospace, monospace; color:var(--dim); }
-    main { padding:24px 32px; max-width:1400px; margin:0 auto; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:18px; }
-    .card { background:#fff; border:1px solid var(--line); padding:16px; }
-    .card h2 { margin:0 0 8px; font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; }
-    .card .n { font:10px/1 ui-monospace, monospace; color:var(--dim); margin-bottom:8px; }
-    .card .canvas-wrap { position:relative; height:280px; }
-    .empty { color:var(--dim); font-style:italic; padding:24px 0; text-align:center; }
-    footer { padding:18px 32px; border-top:1px solid var(--line); color:var(--dim); font:11px/1.5 ui-monospace, monospace; }
-    footer a { color:var(--accent); }
+    :root{
+      /* UHRI-style paper palette */
+      --paper:   #faf8f3;
+      --paper-2: #f1ede2;
+      --paper-3: #e6e0d0;
+      --line:    #d6cfb9;
+      --line-2:  #ebe5d2;
+      --ink:     #1a1816;
+      --ink-2:   #3a3530;
+      --dim:     #767064;
+      --dimmer:  #a39c8c;
+      --accent:  #b86c2c;      /* warm ochre */
+      --accent-2:#9c5821;
+      --serif: "Source Serif 4", Charter, "Iowan Old Style", Georgia, serif;
+      --mono:  "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);
+         font:15px/1.55 var(--serif);
+         -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+    /* ───── top bar ───── */
+    .topbar{display:flex;align-items:center;gap:24px;padding:16px 32px;
+            border-bottom:1px solid var(--line);background:var(--paper-2)}
+    .brand{display:inline-flex;align-items:center;gap:10px;
+           font:600 13px/1 var(--mono);letter-spacing:.06em;color:var(--ink);
+           text-transform:uppercase}
+    .brand .sq{display:inline-block;width:12px;height:12px;background:var(--ink);
+               margin-right:2px}
+    .brand .slash{color:var(--dim);font-weight:400}
+    .topbar .meta{margin-left:auto;font:11px/1.5 var(--mono);color:var(--dim);
+                  letter-spacing:.02em}
+    .topbar .meta a{color:var(--accent);text-decoration:none}
+    .topbar .meta a:hover{text-decoration:underline}
+    .topbar .badge{display:inline-block;padding:2px 7px;border:1px solid var(--line);
+                   background:var(--paper);color:var(--dim);font-weight:500;
+                   margin-left:8px;letter-spacing:.08em;text-transform:uppercase}
+
+    /* ───── KPI strip ───── */
+    .kpis{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--paper)}
+    .kpi{flex:1;padding:18px 24px;border-right:1px solid var(--line-2);min-width:160px}
+    .kpi:last-child{border-right:0}
+    .kpi .lbl{font:10px/1 var(--mono);letter-spacing:.14em;color:var(--dim);
+              text-transform:uppercase;margin-bottom:8px}
+    .kpi .val{font:600 28px/1.1 var(--serif);color:var(--ink);font-variant-numeric:tabular-nums}
+    .kpi .sub{font:10px/1.4 var(--mono);color:var(--dimmer);margin-top:6px;letter-spacing:.02em}
+
+    /* ───── main grid ───── */
+    main{padding:24px 32px 48px;max-width:1480px;margin:0 auto}
+    .section-head{display:flex;align-items:baseline;gap:12px;
+                  margin:8px 0 14px;padding-bottom:8px;
+                  border-bottom:1px dotted var(--line)}
+    .section-head h2{margin:0;font:600 14px/1 var(--mono);letter-spacing:.12em;
+                     color:var(--ink);text-transform:uppercase}
+    .section-head .n{font:10px var(--mono);color:var(--dim);letter-spacing:.06em}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(440px, 1fr));gap:18px}
+    .card{background:#fff;border:1px solid var(--line);padding:16px 18px;
+          display:flex;flex-direction:column;min-height:340px}
+    .card-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+    .card-head .idx{font:500 11px/1 var(--mono);letter-spacing:.12em;color:var(--dimmer)}
+    .card-head h3{margin:0;font:600 13px/1.3 var(--serif);color:var(--ink);flex:1}
+    .card .n{font:10px/1.4 var(--mono);color:var(--dim);letter-spacing:.06em;
+             margin-bottom:10px;text-transform:uppercase}
+    .card .canvas-wrap{flex:1;position:relative;min-height:240px}
+    .card .empty{color:var(--dim);font-style:italic;padding:48px 0;text-align:center;
+                 font:13px var(--serif)}
+
+    /* ───── footer ───── */
+    footer{padding:20px 32px;border-top:1px solid var(--line);
+           background:var(--paper-2);color:var(--dim);
+           font:11px/1.6 var(--mono);letter-spacing:.02em}
+    footer .row{display:flex;flex-wrap:wrap;gap:24px;align-items:baseline;
+                max-width:1480px;margin:0 auto}
+    footer a{color:var(--accent);text-decoration:none}
+    footer a:hover{text-decoration:underline}
+    footer .credit{margin-left:auto;color:var(--dimmer)}
+
+    @media (max-width: 720px){
+      .topbar{flex-wrap:wrap;gap:12px;padding:12px 18px}
+      .topbar .meta{margin-left:0;width:100%}
+      .kpis{flex-wrap:wrap}
+      .kpi{flex-basis:50%;border-bottom:1px solid var(--line-2)}
+      main{padding:18px}
+      .grid{grid-template-columns:1fr}
+      .card{min-height:300px}
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Uwazi aggregate dashboard</h1>
-    <div class="meta">
-      source: <a href="{{ instance_url }}">{{ instance_url }}</a>
-      &middot; entities: {{ '{:,}'.format(total_entities) }}
-      &middot; generated: {{ generated_at }}
+
+<header class="topbar">
+  <span class="brand">
+    <span class="sq"></span>UWAZI<span class="slash">/</span>aggregate
+    <span class="badge">β</span>
+  </span>
+  <div class="meta">
+    <a href="{{ instance_url }}">{{ instance_url }}</a>
+    &nbsp;·&nbsp; generated {{ generated_at }}
+  </div>
+</header>
+
+{% if kpis %}
+<section class="kpis">
+  {% for k in kpis %}
+    <div class="kpi">
+      <div class="lbl">{{ k.label }}</div>
+      <div class="val">{{ k.value }}</div>
+      {% if k.sub %}<div class="sub">{{ k.sub }}</div>{% endif %}
     </div>
-  </header>
-  <main>
-    <div class="grid">
-      {% for c in charts %}
-        <div class="card">
-          <h2>{{ c.title }}</h2>
-          <div class="n">n = {{ '{:,}'.format(c.n) }}</div>
-          {% if c.values %}
-            <div class="canvas-wrap"><canvas id="chart-{{ c.id }}"></canvas></div>
-          {% else %}
-            <div class="empty">no data</div>
-          {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
+<main>
+  <div class="section-head">
+    <h2>Breakdowns</h2>
+    <span class="n">{{ charts|length }} chart{% if charts|length != 1 %}s{% endif %} · auto-discovered from {{ total_entities|default(0) }} entities</span>
+  </div>
+
+  <div class="grid">
+    {% for c in charts %}
+      <div class="card">
+        <div class="card-head">
+          <span class="idx">{{ "%02d"|format(loop.index) }}</span>
+          <h3>{{ c.title }}</h3>
         </div>
-      {% endfor %}
-    </div>
-  </main>
-  <footer>
-    Generated by <a href="https://github.com/lszoszk/uwazi-charts">uwazi-charts</a>
-    &middot; data fetched once and aggregated client-side &middot;
-    please credit the source instance when republishing.
-  </footer>
+        <div class="n">n = {{ '{:,}'.format(c.n) }} {% if c.kind == "bar" or c.kind == "doughnut" %}· {{ c.labels|length }} categories{% endif %}</div>
+        {% if c.values %}
+          <div class="canvas-wrap"><canvas id="chart-{{ c.id }}"></canvas></div>
+        {% else %}
+          <div class="empty">no data for this field</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</main>
 
-  <script>
-    const CHARTS = {{ charts_json|safe }};
+<footer>
+  <div class="row">
+    <span>Built with <a href="https://github.com/lszoszk/uwazi-charts">uwazi-charts</a></span>
+    <span>· data: <a href="{{ instance_url }}">{{ instance_url }}</a></span>
+    <span>· methodology: aggregations only, no content republished</span>
+    <span class="credit">generated {{ generated_at }}</span>
+  </div>
+</footer>
 
-    const palette = ["#b86c2c","#2c6bb8","#2cb86c","#b8b62c","#b82c6b","#6c2cb8","#2cb8b6"];
+<script>
+  const CHARTS = {{ charts_json|safe }};
 
-    for (const c of CHARTS) {
-      if (!c.values || !c.values.length) continue;
-      const el = document.getElementById("chart-" + c.id);
-      if (!el) continue;
-      const dataset = {
-        label: c.title,
-        data: c.values,
-        backgroundColor: c.kind === "doughnut"
-          ? c.labels.map((_, i) => palette[i % palette.length])
-          : "#b86c2c",
-        borderColor: c.kind === "line" ? "#b86c2c" : undefined,
-        borderWidth: c.kind === "line" ? 2 : 1,
-        tension: 0.15,
-        fill: false,
-      };
-      new Chart(el, {
-        type: c.kind,
-        data: { labels: c.labels, datasets: [dataset] },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          indexAxis: c.kind === "bar" ? "y" : "x",
-          plugins: {
-            legend: { display: c.kind === "doughnut" },
-          },
-          scales: c.kind === "doughnut" ? {} : {
-            x: { beginAtZero: true, ticks: { precision: 0 } },
-            y: { ticks: { autoSkip: false } },
+  // UHRI-derived palette — warm ochre primary, muted neutrals as ramp
+  const SINGLE = "#b86c2c";
+  const SINGLE_LINE = "#9c5821";
+  const RAMP = ["#b86c2c","#3a3530","#767064","#9c5821","#a39c8c","#d6cfb9","#b86c2c"];
+
+  for (const c of CHARTS) {
+    if (!c.values || !c.values.length) continue;
+    const el = document.getElementById("chart-" + c.id);
+    if (!el) continue;
+
+    const isLine = c.kind === "line";
+    const isDoughnut = c.kind === "doughnut";
+
+    const dataset = {
+      label: c.title,
+      data: c.values,
+      backgroundColor: isDoughnut
+        ? c.labels.map((_, i) => RAMP[i % RAMP.length])
+        : SINGLE,
+      borderColor: isLine ? SINGLE_LINE : undefined,
+      borderWidth: isLine ? 2 : 0,
+      tension: 0.15,
+      pointRadius: isLine ? 3 : 0,
+      pointBackgroundColor: SINGLE_LINE,
+      fill: false,
+    };
+
+    new Chart(el, {
+      type: c.kind,
+      data: { labels: c.labels, datasets: [dataset] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: c.kind === "bar" ? "y" : "x",
+        plugins: {
+          legend: { display: isDoughnut },
+          tooltip: {
+            backgroundColor: "#1a1816",
+            titleFont: { family: "IBM Plex Mono", size: 11 },
+            bodyFont: { family: "IBM Plex Mono", size: 11 },
+            padding: 8,
           },
         },
-      });
-    }
-  </script>
+        scales: isDoughnut ? {} : {
+          x: {
+            beginAtZero: true,
+            ticks: { precision: 0, font: { family: "IBM Plex Mono", size: 10 }, color: "#767064" },
+            grid: { color: "#ebe5d2" },
+          },
+          y: {
+            ticks: { autoSkip: false, font: { family: "IBM Plex Mono", size: 10 }, color: "#3a3530" },
+            grid: { color: "#ebe5d2" },
+          },
+        },
+      },
+    });
+  }
+</script>
 </body>
 </html>

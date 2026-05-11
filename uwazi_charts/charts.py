@@ -130,5 +130,48 @@ def auto_charts_from_df(
     return charts
 
 
+def compute_kpis(df: pd.DataFrame) -> list[dict]:
+    """Return the top-of-page KPI strip — universal stats that work for any
+    Uwazi instance.
+
+    Each KPI dict: {"label": str, "value": str, "sub": str | None}
+    where sub is an optional second-line caption (date range, etc.).
+    """
+    if df.empty:
+        return [{"label": "Entities", "value": "0", "sub": "no data"}]
+
+    kpis: list[dict] = []
+    kpis.append({
+        "label": "Entities",
+        "value": f"{len(df):,}",
+        "sub": None,
+    })
+
+    if "template" in df.columns:
+        kpis.append({
+            "label": "Templates",
+            "value": f"{df['template'].nunique():,}",
+            "sub": None,
+        })
+
+    if "language" in df.columns and df["language"].notna().any():
+        langs = df["language"].dropna().unique()
+        kpis.append({
+            "label": "Languages",
+            "value": str(len(langs)),
+            "sub": ", ".join(sorted(langs[:4])) + ("…" if len(langs) > 4 else ""),
+        })
+
+    if "year" in df.columns and df["year"].notna().any():
+        years = df["year"].dropna().astype(int)
+        kpis.append({
+            "label": "Date range",
+            "value": f"{years.min()}–{years.max()}",
+            "sub": f"{years.max() - years.min() + 1} years",
+        })
+
+    return kpis
+
+
 def _empty_chart(cid: str, title: str, kind: str) -> dict:
     return {"id": cid, "title": title, "kind": kind, "labels": [], "values": [], "n": 0}
