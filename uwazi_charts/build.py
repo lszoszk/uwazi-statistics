@@ -76,12 +76,37 @@ def _build_tab(
     name: str,
     slug: str,
     schema_templates: list[dict] | None,
+    template_id: str | None = None,
 ) -> dict:
     """Produce one tab's worth of charts + KPIs from a (possibly filtered)
     DataFrame. Discovery + flatten + chart generation all run against the
-    given subset so per-template tabs only show fields actually present."""
-    profile = _resolve_profile(df, schema_templates)
+    given subset so per-template tabs only show fields actually present.
+
+    When `template_id` is given (per-template tabs), the schema fed into
+    discovery is filtered to that one template — otherwise the schema-driven
+    pass would dump fields from every other template into this tab as
+    "no data" cards.
+    """
+    effective_schema = schema_templates
+    if template_id and schema_templates:
+        effective_schema = [
+            t for t in schema_templates
+            if (t.get("_id") or t.get("id")) == template_id
+        ] or None
+
+    profile = _resolve_profile(df, effective_schema)
     prepared = _prepare(df, profile)
+    raw_charts = charts_mod.auto_charts_from_df(
+        prepared,
+        categorical=profile.get("categorical", []),
+        multi=profile.get("multi", []),
+        has_year=True,
+    )
+    # Drop empty charts so per-tab grids stay information-dense. We still
+    # render a per-card "no data" fallback in the template — but only for
+    # charts that the schema promised yet the data didn't deliver, which
+    # only happens on the "All" tab in practice.
+    nonempty_charts = [c for c in raw_charts if c["values"]]
     return {
         "name": name,
         "slug": slug,
@@ -91,12 +116,7 @@ def _build_tab(
             # Namespace chart ids per tab so two tabs charting the same field
             # don't collide on the canvas DOM id.
             {**c, "id": f"{slug}-{c['id']}"}
-            for c in charts_mod.auto_charts_from_df(
-                prepared,
-                categorical=profile.get("categorical", []),
-                multi=profile.get("multi", []),
-                has_year=True,
-            )
+            for c in nonempty_charts
         ],
     }
 
@@ -143,7 +163,8 @@ def build_html_from_df(
                 seen_slugs.add(slug)
                 sub_df = df[df["template"] == tpl_id]
                 tabs.append(_build_tab(
-                    sub_df, name=name, slug=slug, schema_templates=schema_templates))
+                    sub_df, name=name, slug=slug,
+                    schema_templates=schema_templates, template_id=tpl_id))
 
     return render_dashboard(
         tabs=tabs,
