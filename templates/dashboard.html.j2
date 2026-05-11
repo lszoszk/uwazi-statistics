@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Uwazi · aggregate dashboard</title>
 
-  <!-- Editorial typography — Source Serif 4 for body, IBM Plex Mono for meta.
-       Pinned versions via Google Fonts; safe to swap to self-hosted later. -->
+  <!-- Editorial typography — Source Serif 4 body, IBM Plex Mono labels. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -15,7 +14,6 @@
 
   <style>
     :root{
-      /* UHRI-style paper palette */
       --paper:   #faf8f3;
       --paper-2: #f1ede2;
       --paper-3: #e6e0d0;
@@ -25,7 +23,7 @@
       --ink-2:   #3a3530;
       --dim:     #767064;
       --dimmer:  #a39c8c;
-      --accent:  #b86c2c;      /* warm ochre */
+      --accent:  #b86c2c;
       --accent-2:#9c5821;
       --serif: "Source Serif 4", Charter, "Iowan Old Style", Georgia, serif;
       --mono:  "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -52,14 +50,30 @@
                    background:var(--paper);color:var(--dim);font-weight:500;
                    margin-left:8px;letter-spacing:.08em;text-transform:uppercase}
 
+    /* ───── tabs strip (UHRI-style) ───── */
+    .tabs{display:flex;gap:0;padding:0 32px;background:var(--paper);
+          border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:thin}
+    .tab{appearance:none;background:transparent;border:0;cursor:pointer;
+         padding:14px 18px 12px;margin-bottom:-1px;
+         display:inline-flex;align-items:baseline;gap:8px;
+         font:500 12px/1.2 var(--mono);letter-spacing:.08em;
+         color:var(--dim);text-transform:uppercase;
+         border-bottom:2px solid transparent;white-space:nowrap}
+    .tab:hover{color:var(--ink)}
+    .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+    .tab .tn{font:11px var(--mono);color:var(--dimmer);font-variant-numeric:tabular-nums}
+    .tab.active .tn{color:var(--accent-2)}
+
     /* ───── KPI strip ───── */
     .kpis{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--paper)}
     .kpi{flex:1;padding:18px 24px;border-right:1px solid var(--line-2);min-width:160px}
     .kpi:last-child{border-right:0}
     .kpi .lbl{font:10px/1 var(--mono);letter-spacing:.14em;color:var(--dim);
               text-transform:uppercase;margin-bottom:8px}
-    .kpi .val{font:600 28px/1.1 var(--serif);color:var(--ink);font-variant-numeric:tabular-nums}
-    .kpi .sub{font:10px/1.4 var(--mono);color:var(--dimmer);margin-top:6px;letter-spacing:.02em}
+    .kpi .val{font:600 28px/1.1 var(--serif);color:var(--ink);
+              font-variant-numeric:tabular-nums}
+    .kpi .sub{font:10px/1.4 var(--mono);color:var(--dimmer);margin-top:6px;
+              letter-spacing:.02em}
 
     /* ───── main grid ───── */
     main{padding:24px 32px 48px;max-width:1480px;margin:0 auto}
@@ -82,6 +96,9 @@
     .card .empty{color:var(--dim);font-style:italic;padding:48px 0;text-align:center;
                  font:13px var(--serif)}
 
+    /* ───── tab panes ───── */
+    .pane[hidden]{display:none}
+
     /* ───── footer ───── */
     footer{padding:20px 32px;border-top:1px solid var(--line);
            background:var(--paper-2);color:var(--dim);
@@ -95,6 +112,8 @@
     @media (max-width: 720px){
       .topbar{flex-wrap:wrap;gap:12px;padding:12px 18px}
       .topbar .meta{margin-left:0;width:100%}
+      .tabs{padding:0 18px}
+      .tab{padding:12px 12px 10px}
       .kpis{flex-wrap:wrap}
       .kpi{flex-basis:50%;border-bottom:1px solid var(--line-2)}
       main{padding:18px}
@@ -116,41 +135,64 @@
   </div>
 </header>
 
-{% if kpis %}
-<section class="kpis">
-  {% for k in kpis %}
-    <div class="kpi">
-      <div class="lbl">{{ k.label }}</div>
-      <div class="val">{{ k.value }}</div>
-      {% if k.sub %}<div class="sub">{{ k.sub }}</div>{% endif %}
-    </div>
+{% if tabs|length > 1 %}
+<nav class="tabs" role="tablist" aria-label="Templates">
+  {% for t in tabs %}
+    <button type="button" class="tab {% if loop.first %}active{% endif %}"
+            role="tab" aria-selected="{% if loop.first %}true{% else %}false{% endif %}"
+            data-tab="{{ t.slug }}">
+      {{ t.name }}
+      <span class="tn">{{ '{:,}'.format(t.count) }}</span>
+    </button>
   {% endfor %}
-</section>
+</nav>
 {% endif %}
 
-<main>
-  <div class="section-head">
-    <h2>Breakdowns</h2>
-    <span class="n">{{ charts|length }} chart{% if charts|length != 1 %}s{% endif %} · auto-discovered from {{ total_entities|default(0) }} entities</span>
-  </div>
+{% for t in tabs %}
+<section class="pane" id="pane-{{ t.slug }}" role="tabpanel"
+         aria-label="{{ t.name }}" {% if not loop.first %}hidden{% endif %}>
 
-  <div class="grid">
-    {% for c in charts %}
-      <div class="card">
-        <div class="card-head">
-          <span class="idx">{{ "%02d"|format(loop.index) }}</span>
-          <h3>{{ c.title }}</h3>
-        </div>
-        <div class="n">n = {{ '{:,}'.format(c.n) }} {% if c.kind == "bar" or c.kind == "doughnut" %}· {{ c.labels|length }} categories{% endif %}</div>
-        {% if c.values %}
-          <div class="canvas-wrap"><canvas id="chart-{{ c.id }}"></canvas></div>
-        {% else %}
-          <div class="empty">no data for this field</div>
-        {% endif %}
+  {% if t.kpis %}
+  <div class="kpis">
+    {% for k in t.kpis %}
+      <div class="kpi">
+        <div class="lbl">{{ k.label }}</div>
+        <div class="val">{{ k.value }}</div>
+        {% if k.sub %}<div class="sub">{{ k.sub }}</div>{% endif %}
       </div>
     {% endfor %}
   </div>
-</main>
+  {% endif %}
+
+  <main>
+    <div class="section-head">
+      <h2>Breakdowns</h2>
+      <span class="n">
+        {{ t.charts|length }} chart{% if t.charts|length != 1 %}s{% endif %}
+        · {{ '{:,}'.format(t.count) }} entities
+        {% if t.name != "All" %} · <em>{{ t.name }}</em> template{% endif %}
+      </span>
+    </div>
+
+    <div class="grid">
+      {% for c in t.charts %}
+        <div class="card">
+          <div class="card-head">
+            <span class="idx">{{ "%02d"|format(loop.index) }}</span>
+            <h3>{{ c.title }}</h3>
+          </div>
+          <div class="n">n = {{ '{:,}'.format(c.n) }}{% if c.kind == "bar" or c.kind == "doughnut" %} · {{ c.labels|length }} categories{% endif %}</div>
+          {% if c.values %}
+            <div class="canvas-wrap"><canvas id="chart-{{ c.id }}" data-chart-id="{{ c.id }}"></canvas></div>
+          {% else %}
+            <div class="empty">no data for this field</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </main>
+</section>
+{% endfor %}
 
 <footer>
   <div class="row">
@@ -162,38 +204,41 @@
 </footer>
 
 <script>
-  const CHARTS = {{ charts_json|safe }};
+  const CHARTS = {{ all_charts_json|safe }};
 
-  // UHRI-derived palette — warm ochre primary, muted neutrals as ramp
   const SINGLE = "#b86c2c";
   const SINGLE_LINE = "#9c5821";
   const RAMP = ["#b86c2c","#3a3530","#767064","#9c5821","#a39c8c","#d6cfb9","#b86c2c"];
 
-  for (const c of CHARTS) {
-    if (!c.values || !c.values.length) continue;
-    const el = document.getElementById("chart-" + c.id);
-    if (!el) continue;
+  // Chart.js doesn't auto-resize canvases that were hidden at construction
+  // time, so we lazy-init each chart the first time its tab becomes active.
+  const _byId = new Map(CHARTS.map(c => [c.id, c]));
+  const _built = new Set();
 
+  function buildChart(c) {
+    if (_built.has(c.id)) return;
+    const el = document.getElementById("chart-" + c.id);
+    if (!el || !c.values || !c.values.length) return;
     const isLine = c.kind === "line";
     const isDoughnut = c.kind === "doughnut";
-
-    const dataset = {
-      label: c.title,
-      data: c.values,
-      backgroundColor: isDoughnut
-        ? c.labels.map((_, i) => RAMP[i % RAMP.length])
-        : SINGLE,
-      borderColor: isLine ? SINGLE_LINE : undefined,
-      borderWidth: isLine ? 2 : 0,
-      tension: 0.15,
-      pointRadius: isLine ? 3 : 0,
-      pointBackgroundColor: SINGLE_LINE,
-      fill: false,
-    };
-
     new Chart(el, {
       type: c.kind,
-      data: { labels: c.labels, datasets: [dataset] },
+      data: {
+        labels: c.labels,
+        datasets: [{
+          label: c.title,
+          data: c.values,
+          backgroundColor: isDoughnut
+            ? c.labels.map((_, i) => RAMP[i % RAMP.length])
+            : SINGLE,
+          borderColor: isLine ? SINGLE_LINE : undefined,
+          borderWidth: isLine ? 2 : 0,
+          tension: 0.15,
+          pointRadius: isLine ? 3 : 0,
+          pointBackgroundColor: SINGLE_LINE,
+          fill: false,
+        }],
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -203,23 +248,54 @@
           tooltip: {
             backgroundColor: "#1a1816",
             titleFont: { family: "IBM Plex Mono", size: 11 },
-            bodyFont: { family: "IBM Plex Mono", size: 11 },
+            bodyFont:  { family: "IBM Plex Mono", size: 11 },
             padding: 8,
           },
         },
         scales: isDoughnut ? {} : {
-          x: {
-            beginAtZero: true,
-            ticks: { precision: 0, font: { family: "IBM Plex Mono", size: 10 }, color: "#767064" },
-            grid: { color: "#ebe5d2" },
-          },
-          y: {
-            ticks: { autoSkip: false, font: { family: "IBM Plex Mono", size: 10 }, color: "#3a3530" },
-            grid: { color: "#ebe5d2" },
-          },
+          x: { beginAtZero:true,
+               ticks:{precision:0, font:{family:"IBM Plex Mono", size:10}, color:"#767064"},
+               grid:{color:"#ebe5d2"} },
+          y: { ticks:{autoSkip:false, font:{family:"IBM Plex Mono", size:10}, color:"#3a3530"},
+               grid:{color:"#ebe5d2"} },
         },
       },
     });
+    _built.add(c.id);
+  }
+
+  function buildVisibleCharts() {
+    document.querySelectorAll('.pane:not([hidden]) canvas[data-chart-id]')
+      .forEach(el => {
+        const c = _byId.get(el.dataset.chartId);
+        if (c) buildChart(c);
+      });
+  }
+
+  function showTab(slug) {
+    document.querySelectorAll('.tab').forEach(btn => {
+      const isMatch = btn.dataset.tab === slug;
+      btn.classList.toggle('active', isMatch);
+      btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+    });
+    document.querySelectorAll('.pane').forEach(pane => {
+      pane.hidden = (pane.id !== 'pane-' + slug);
+    });
+    buildVisibleCharts();
+    // URL hash for shareable views
+    history.replaceState(null, '', '#tab=' + slug);
+  }
+
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => showTab(btn.dataset.tab));
+  });
+
+  // Honour ?tab=… or #tab=… on first load
+  const hashTab = (location.hash.match(/tab=([^&]+)/) || [])[1];
+  if (hashTab && document.getElementById('pane-' + hashTab)) {
+    showTab(hashTab);
+  } else {
+    buildVisibleCharts();
   }
 </script>
 </body>

@@ -22,20 +22,31 @@ def _env() -> Environment:
 
 def render_dashboard(
     *,
-    charts: list[dict],
+    tabs: list[dict],
     instance_url: str,
     total_entities: int,
-    kpis: list[dict] | None = None,
     template_name: str = "dashboard.html.j2",
 ) -> str:
+    """Render the dashboard from a list of tabs.
+
+    Each tab dict has shape:
+        {"name": str, "slug": str, "count": int,
+         "kpis": list[dict], "charts": list[dict]}
+
+    The template renders one nav button per tab and one <section> pane
+    per tab — only the first pane is visible on load; the JS swaps them.
+    """
     env = _env()
     tpl = env.get_template(template_name)
+
+    # Flatten every chart from every tab into a single JS payload so the
+    # client can look them up by id when lazily initialising on tab activate.
+    all_charts = [c for t in tabs for c in t["charts"]]
     return tpl.render(
-        charts=charts,
-        charts_json=json.dumps(charts, ensure_ascii=False),
+        tabs=tabs,
+        all_charts_json=json.dumps(all_charts, ensure_ascii=False),
         instance_url=instance_url,
         total_entities=total_entities,
-        kpis=kpis or [],
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 

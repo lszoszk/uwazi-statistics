@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -31,6 +32,10 @@ UPR_INFO_DEFAULTS = {
 }
 
 
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or "tab"
+
+
 def _prepare(df: pd.DataFrame, profile: dict) -> pd.DataFrame:
     """Flatten the metadata + add a year column. Idempotent."""
     df = flatten.add_year_column(df, src="creationDate", dst="year")
@@ -41,48 +46,109 @@ def _prepare(df: pd.DataFrame, profile: dict) -> pd.DataFrame:
     return df
 
 
+def _resolve_profile(
+    df: pd.DataFrame,
+    schema_templates: list[dict] | None,
+    *,
+    max_charts: int = 12,
+) -> dict:
+    """Pick the best profile available for `df`.
+
+    Profile resolution order:
+      1. Hybrid: schema-driven (authoritative labels) + DF-inferred
+         (only place inherited `foo___bar` fields appear)
+      2. DataFrame-only inference
+      3. Hard-coded UPR_INFO_DEFAULTS (fixture / no metadata at all)
+    """
+    df_profile = discover.discover_profile_from_df(df)
+    if schema_templates:
+        schema_fields = discover.parse_templates(schema_templates)
+        schema_profile = discover.build_profile(schema_fields, max_charts=max_charts * 2)
+        return discover.merge_profiles(schema_profile, df_profile, max_charts=max_charts)
+    if any(df_profile.get(k) for k in ("categorical", "multi", "date")):
+        return df_profile
+    return UPR_INFO_DEFAULTS
+
+
+def _build_tab(
+    df: pd.DataFrame,
+    *,
+    name: str,
+    slug: str,
+    schema_templates: list[dict] | None,
+) -> dict:
+    """Produce one tab's worth of charts + KPIs from a (possibly filtered)
+    DataFrame. Discovery + flatten + chart generation all run against the
+    given subset so per-template tabs only show fields actually present."""
+    profile = _resolve_profile(df, schema_templates)
+    prepared = _prepare(df, profile)
+    return {
+        "name": name,
+        "slug": slug,
+        "count": int(prepared.shape[0]),
+        "kpis": charts_mod.compute_kpis(prepared),
+        "charts": [
+            # Namespace chart ids per tab so two tabs charting the same field
+            # don't collide on the canvas DOM id.
+            {**c, "id": f"{slug}-{c['id']}"}
+            for c in charts_mod.auto_charts_from_df(
+                prepared,
+                categorical=profile.get("categorical", []),
+                multi=profile.get("multi", []),
+                has_year=True,
+            )
+        ],
+    }
+
+
+def _template_id_to_name(schema_templates: list[dict] | None) -> dict[str, str]:
+    if not schema_templates:
+        return {}
+    out = {}
+    for t in schema_templates:
+        tid = t.get("_id") or t.get("id")
+        if tid:
+            out[tid] = t.get("name") or "unnamed"
+    return out
+
+
 def build_html_from_df(
     df: pd.DataFrame,
     *,
     instance_url: str,
-    profile: dict | None = None,
     schema_templates: list[dict] | None = None,
 ) -> str:
     """Render the full dashboard HTML.
 
-    Profile resolution order:
-      1. Explicit `profile` arg (caller overrides everything)
-      2. Hybrid: schema-driven (from `schema_templates`) merged with
-         DataFrame-inferred (which is the only place denormalised
-         inherited fields like `foo___bar` appear)
-      3. DataFrame-only inference
-      4. Hard-coded `UPR_INFO_DEFAULTS` (fixture / no metadata at all)
+    Always produces at least one tab ("All"). When multiple `template` IDs
+    are present in the DataFrame AND the schema is available to resolve
+    them to human names, adds one tab per template (most populous first)
+    so each chart set is semantically clean.
     """
-    if profile is None:
-        df_profile = discover.discover_profile_from_df(df)
-        if schema_templates:
-            schema_fields = discover.parse_templates(schema_templates)
-            schema_profile = discover.build_profile(schema_fields, max_charts=24)
-            # Schema first so authoritative labels win; DF adds inherited fields.
-            profile = discover.merge_profiles(schema_profile, df_profile, max_charts=12)
-        elif any(df_profile.get(k) for k in ("categorical", "multi", "date")):
-            profile = df_profile
-        else:
-            profile = UPR_INFO_DEFAULTS
+    tabs: list[dict] = [_build_tab(df, name="All", slug="all", schema_templates=schema_templates)]
 
-    df = _prepare(df, profile)
-    chart_list = charts_mod.auto_charts_from_df(
-        df,
-        categorical=profile.get("categorical", []),
-        multi=profile.get("multi", []),
-        has_year=True,
-    )
-    kpis = charts_mod.compute_kpis(df)
+    if "template" in df.columns:
+        id_to_name = _template_id_to_name(schema_templates)
+        counts = df["template"].value_counts()
+        # Only add per-template tabs when we have multiple templates AND we
+        # can give them readable names from the schema.
+        if len(counts) > 1 and id_to_name:
+            seen_slugs = {"all"}
+            for tpl_id, _count in counts.items():
+                name = id_to_name.get(tpl_id) or tpl_id[:8]
+                slug = _slug(name)
+                # Slug collisions are unlikely but possible — disambiguate.
+                if slug in seen_slugs:
+                    slug = f"{slug}-{tpl_id[:6]}"
+                seen_slugs.add(slug)
+                sub_df = df[df["template"] == tpl_id]
+                tabs.append(_build_tab(
+                    sub_df, name=name, slug=slug, schema_templates=schema_templates))
+
     return render_dashboard(
-        charts=chart_list,
+        tabs=tabs,
         instance_url=instance_url,
         total_entities=int(df.shape[0]),
-        kpis=kpis,
     )
 
 

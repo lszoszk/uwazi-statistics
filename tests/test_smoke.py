@@ -67,3 +67,34 @@ def test_kpi_strip_present(tmp_path: Path):
     assert "aggregate" in html
     # the chartable fields end up in numbered cards
     assert 'class="idx"' in html
+
+
+def test_single_template_no_tab_strip():
+    """Fixture has only one template → tab bar should be hidden."""
+    df = make_sample(40)
+    html = build_html_from_df(df, instance_url="https://example.org")
+    # "All" pane still rendered, but the tabs nav is suppressed for 1 tab
+    assert 'id="pane-all"' in html
+    assert 'class="tabs"' not in html  # nav suppressed
+
+
+def test_multi_template_renders_tab_strip():
+    """Two templates + a schema → All + 2 per-template tabs."""
+    df = make_sample(40).copy()
+    # rewrite half the rows to a second template id
+    df.loc[df.index[:20], "template"] = "tpl-state"
+    df.loc[df.index[20:], "template"] = "tpl-pledge"
+    templates = [
+        {"_id": "tpl-state",  "name": "State",            "properties": []},
+        {"_id": "tpl-pledge", "name": "Voluntary Pledge", "properties": []},
+    ]
+    html = build_html_from_df(df, instance_url="https://example.org",
+                              schema_templates=templates)
+    assert 'class="tabs"' in html
+    assert 'pane-all' in html
+    assert 'pane-state' in html
+    assert 'pane-voluntary-pledge' in html
+    # most-populous-first ordering: both have 20, so order is dict-insertion;
+    # we just check both are present
+    assert html.index('pane-state') < html.index('pane-voluntary-pledge') or \
+           html.index('pane-voluntary-pledge') < html.index('pane-state')
