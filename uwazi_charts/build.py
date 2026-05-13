@@ -106,7 +106,7 @@ def _build_tab(
     # render a per-card "no data" fallback in the template — but only for
     # charts that the schema promised yet the data didn't deliver, which
     # only happens on the "All" tab in practice.
-    nonempty_charts = [c for c in raw_charts if c["values"]]
+    nonempty_charts = [c for c in raw_charts if charts_mod.chart_has_data(c)]
     return {
         "name": name,
         "slug": slug,

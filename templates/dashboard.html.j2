@@ -96,6 +96,18 @@
     .card .empty{color:var(--dim);font-style:italic;padding:48px 0;text-align:center;
                  font:13px var(--serif)}
 
+    /* ───── per-card controls (toggle + csv) ───── */
+    .card .ctrl{display:flex;align-items:center;gap:6px;margin-left:auto}
+    .card .ctrl button,.card .ctrl a{appearance:none;background:transparent;
+        border:1px solid var(--line);padding:3px 8px;cursor:pointer;
+        font:10px/1 var(--mono);letter-spacing:.08em;color:var(--dim);
+        text-transform:uppercase;text-decoration:none;border-radius:0}
+    .card .ctrl button:hover,.card .ctrl a:hover{color:var(--ink);border-color:var(--ink-2)}
+    .card .ctrl button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+    .card .ctrl .seg{display:inline-flex}
+    .card .ctrl .seg button{border-right-width:0}
+    .card .ctrl .seg button:last-child{border-right-width:1px}
+
     /* ───── tab panes ───── */
     .pane[hidden]{display:none}
 
@@ -176,13 +188,31 @@
 
     <div class="grid">
       {% for c in t.charts %}
-        <div class="card">
+        {% set has_data = c.values or c.datasets %}
+        {% set can_scale = c.kind in ("bar", "stacked_bar") %}
+        <div class="card" data-chart-card="{{ c.id }}">
           <div class="card-head">
             <span class="idx">{{ "%02d"|format(loop.index) }}</span>
             <h3>{{ c.title }}</h3>
+            {% if has_data %}
+            <div class="ctrl">
+              {% if can_scale %}
+              <span class="seg" role="group" aria-label="Scale">
+                <button type="button" class="on" data-scale="abs"
+                        data-target="{{ c.id }}" title="Absolute counts">#</button>
+                <button type="button" data-scale="pct"
+                        data-target="{{ c.id }}" title="Percent of total">%</button>
+              </span>
+              {% endif %}
+              <a href="#" data-csv="{{ c.id }}" title="Download chart data as CSV">CSV</a>
+            </div>
+            {% endif %}
           </div>
-          <div class="n">n = {{ '{:,}'.format(c.n) }}{% if c.kind == "bar" or c.kind == "doughnut" %} · {{ c.labels|length }} categories{% endif %}</div>
-          {% if c.values %}
+          <div class="n">n = {{ '{:,}'.format(c.n) }}
+            {%- if c.kind in ("bar", "doughnut") %} · {{ c.labels|length }} categories
+            {%- elif c.kind == "stacked_bar" %} · {{ c.datasets|length }} series · {{ c.labels|length }} years
+            {%- endif %}</div>
+          {% if has_data %}
             <div class="canvas-wrap"><canvas id="chart-{{ c.id }}" data-chart-id="{{ c.id }}"></canvas></div>
           {% else %}
             <div class="empty">no data for this field</div>
@@ -208,60 +238,125 @@
 
   const SINGLE = "#b86c2c";
   const SINGLE_LINE = "#9c5821";
-  const RAMP = ["#b86c2c","#3a3530","#767064","#9c5821","#a39c8c","#d6cfb9","#b86c2c"];
+  // Series ramp for stacked bars + doughnut slices. Hand-picked for legibility
+  // against the cream paper background — high-contrast first, then muted fill.
+  const RAMP = ["#b86c2c","#3a3530","#9c5821","#767064","#d6cfb9","#a39c8c","#1a1816"];
 
   // Chart.js doesn't auto-resize canvases that were hidden at construction
   // time, so we lazy-init each chart the first time its tab becomes active.
   const _byId = new Map(CHARTS.map(c => [c.id, c]));
-  const _built = new Set();
+  const _instances = new Map();   // chartId → Chart.js instance
+  const _scale = new Map();       // chartId → "abs" | "pct"
 
-  function buildChart(c) {
-    if (_built.has(c.id)) return;
-    const el = document.getElementById("chart-" + c.id);
-    if (!el || !c.values || !c.values.length) return;
+  function fmtNum(v) {
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1);
+  }
+
+  function colTotals(c) {
+    // For stacked: total per x-bucket. Used for percent normalisation.
+    if (c.kind !== "stacked_bar") return null;
+    return c.labels.map((_, i) =>
+      c.datasets.reduce((s, ds) => s + (ds.values[i] || 0), 0));
+  }
+
+  function toPct(values, total) {
+    if (!total) return values.map(() => 0);
+    return values.map(v => (v / total) * 100);
+  }
+
+  function datasetsFor(c, scale) {
+    if (c.kind === "stacked_bar") {
+      const totals = colTotals(c);
+      return c.datasets.map((ds, i) => ({
+        label: ds.label,
+        data: scale === "pct"
+          ? ds.values.map((v, j) => totals[j] ? (v / totals[j]) * 100 : 0)
+          : ds.values,
+        backgroundColor: RAMP[i % RAMP.length],
+        borderWidth: 0,
+        stack: "s",
+      }));
+    }
     const isLine = c.kind === "line";
     const isDoughnut = c.kind === "doughnut";
-    new Chart(el, {
-      type: c.kind,
-      data: {
-        labels: c.labels,
-        datasets: [{
-          label: c.title,
-          data: c.values,
-          backgroundColor: isDoughnut
-            ? c.labels.map((_, i) => RAMP[i % RAMP.length])
-            : SINGLE,
-          borderColor: isLine ? SINGLE_LINE : undefined,
-          borderWidth: isLine ? 2 : 0,
-          tension: 0.15,
-          pointRadius: isLine ? 3 : 0,
-          pointBackgroundColor: SINGLE_LINE,
-          fill: false,
-        }],
-      },
+    const sum = c.values.reduce((a, b) => a + b, 0);
+    const data = scale === "pct" ? toPct(c.values, sum) : c.values;
+    return [{
+      label: c.title,
+      data,
+      backgroundColor: isDoughnut
+        ? c.labels.map((_, i) => RAMP[i % RAMP.length])
+        : SINGLE,
+      borderColor: isLine ? SINGLE_LINE : undefined,
+      borderWidth: isLine ? 2 : 0,
+      tension: 0.15,
+      pointRadius: isLine ? 3 : 0,
+      pointBackgroundColor: SINGLE_LINE,
+      fill: false,
+    }];
+  }
+
+  function buildChart(c) {
+    if (_instances.has(c.id)) return;
+    const el = document.getElementById("chart-" + c.id);
+    if (!el) return;
+    const hasData = c.kind === "stacked_bar"
+      ? (c.datasets && c.datasets.length)
+      : (c.values && c.values.length);
+    if (!hasData) return;
+
+    const scale = _scale.get(c.id) || "abs";
+    const isLine = c.kind === "line";
+    const isDoughnut = c.kind === "doughnut";
+    const isStacked = c.kind === "stacked_bar";
+    const chartType = isStacked ? "bar" : c.kind;
+
+    const inst = new Chart(el, {
+      type: chartType,
+      data: { labels: c.labels, datasets: datasetsFor(c, scale) },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        indexAxis: c.kind === "bar" ? "y" : "x",
+        indexAxis: (c.kind === "bar") ? "y" : "x",
         plugins: {
-          legend: { display: isDoughnut },
+          legend: { display: isDoughnut || isStacked,
+                    labels: { font: { family: "IBM Plex Mono", size: 10 },
+                              color: "#3a3530", boxWidth: 10 } },
           tooltip: {
             backgroundColor: "#1a1816",
             titleFont: { family: "IBM Plex Mono", size: 11 },
             bodyFont:  { family: "IBM Plex Mono", size: 11 },
             padding: 8,
+            callbacks: scale === "pct" ? {
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== undefined
+                ? ctx.parsed.y.toFixed(1) : ctx.parsed.toFixed(1)}%`
+            } : {},
           },
         },
         scales: isDoughnut ? {} : {
-          x: { beginAtZero:true,
+          x: { stacked: isStacked, beginAtZero:true,
                ticks:{precision:0, font:{family:"IBM Plex Mono", size:10}, color:"#767064"},
                grid:{color:"#ebe5d2"} },
-          y: { ticks:{autoSkip:false, font:{family:"IBM Plex Mono", size:10}, color:"#3a3530"},
+          y: { stacked: isStacked, beginAtZero:true,
+               max: (scale === "pct" && isStacked) ? 100 : undefined,
+               ticks:{autoSkip:false, font:{family:"IBM Plex Mono", size:10}, color:"#3a3530",
+                      callback: scale === "pct"
+                        ? (v) => v + "%"
+                        : undefined},
                grid:{color:"#ebe5d2"} },
         },
       },
     });
-    _built.add(c.id);
+    _instances.set(c.id, inst);
+  }
+
+  function rebuildChart(c) {
+    const existing = _instances.get(c.id);
+    if (existing) {
+      existing.destroy();
+      _instances.delete(c.id);
+    }
+    buildChart(c);
   }
 
   function buildVisibleCharts() {
@@ -271,6 +366,55 @@
         if (c) buildChart(c);
       });
   }
+
+  // ───── per-card scale toggle (abs / pct) ─────
+  document.querySelectorAll('button[data-scale]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.target;
+      const c = _byId.get(id);
+      if (!c) return;
+      _scale.set(id, btn.dataset.scale);
+      // update segmented button state
+      document.querySelectorAll(`button[data-target="${id}"]`).forEach(b => {
+        b.classList.toggle('on', b.dataset.scale === btn.dataset.scale);
+      });
+      rebuildChart(c);
+    });
+  });
+
+  // ───── per-card CSV download ─────
+  function csvCell(v) {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function chartToCsv(c) {
+    if (c.kind === "stacked_bar") {
+      const header = ["year", ...c.datasets.map(d => d.label)].map(csvCell).join(",");
+      const rows = c.labels.map((y, i) =>
+        [y, ...c.datasets.map(d => d.values[i] ?? 0)].map(csvCell).join(","));
+      return [header, ...rows].join("\n") + "\n";
+    }
+    const rows = c.labels.map((l, i) => [l, c.values[i] ?? 0].map(csvCell).join(","));
+    return "label,value\n" + rows.join("\n") + "\n";
+  }
+
+  document.querySelectorAll('a[data-csv]').forEach(a => {
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const c = _byId.get(a.dataset.csv);
+      if (!c) return;
+      const blob = new Blob([chartToCsv(c)], {type: "text/csv;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = c.id + ".csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  });
 
   function showTab(slug) {
     document.querySelectorAll('.tab').forEach(btn => {

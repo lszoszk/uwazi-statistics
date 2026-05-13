@@ -42,6 +42,58 @@ def test_chart_has_labels_and_values():
     assert sum(chart["values"]) <= 100
 
 
+def test_stacked_bar_by_year_shape():
+    df = make_sample(200)
+    df = flatten.add_label_column(df, "regional_group", multi=False)
+    df = flatten.add_year_column(df)
+    chart = charts_mod.stacked_bar_by_year(df, "regional_group", title="Regions")
+
+    assert chart["kind"] == "stacked_bar"
+    # labels are years, ascending
+    assert chart["labels"] == sorted(chart["labels"])
+    assert all(isinstance(y, int) for y in chart["labels"])
+    # datasets carry per-category series
+    assert len(chart["datasets"]) >= 1
+    for ds in chart["datasets"]:
+        assert isinstance(ds["label"], str)
+        assert len(ds["values"]) == len(chart["labels"])
+    # year-totals across all series should equal the overall n
+    total_from_pivot = sum(sum(ds["values"]) for ds in chart["datasets"])
+    assert total_from_pivot == chart["n"]
+
+
+def test_stacked_bar_empty_on_missing_column():
+    df = make_sample(20)
+    chart = charts_mod.stacked_bar_by_year(df, "nonexistent_field")
+    assert chart["kind"] == "stacked_bar"
+    assert chart["datasets"] == []
+    assert charts_mod.chart_has_data(chart) is False
+
+
+def test_auto_charts_inserts_stacked_companion():
+    df = make_sample(150)
+    df = flatten.add_label_column(df, "regional_group", multi=False)
+    df = flatten.add_year_column(df)
+    charts = charts_mod.auto_charts_from_df(
+        df, categorical=[("regional_group", "Regional group")], has_year=True)
+
+    kinds = [c["kind"] for c in charts]
+    assert "stacked_bar" in kinds
+    # The stacked variant should sit directly after its bar parent
+    bar_idx = kinds.index("bar")
+    assert kinds[bar_idx + 1] == "stacked_bar"
+
+
+def test_auto_charts_skips_stacked_with_too_few_years():
+    df = make_sample(30)
+    df = flatten.add_label_column(df, "regional_group", multi=False)
+    df["year"] = 2024  # collapse to one year
+    charts = charts_mod.auto_charts_from_df(
+        df, categorical=[("regional_group", "Regional group")], has_year=True,
+        min_years_for_stack=3)
+    assert all(c["kind"] != "stacked_bar" for c in charts)
+
+
 def test_end_to_end_html(tmp_path: Path):
     df = make_sample(150)
     html = build_html_from_df(df, instance_url="https://example.org")
@@ -53,6 +105,17 @@ def test_end_to_end_html(tmp_path: Path):
     out.write_text(html)
     assert out.exists()
     assert out.stat().st_size > 2000  # not a stub
+
+
+def test_end_to_end_html_has_controls(tmp_path: Path):
+    df = make_sample(150)
+    html = build_html_from_df(df, instance_url="https://example.org")
+    # percent toggle + CSV download wired into card markup
+    assert 'data-scale="abs"' in html
+    assert 'data-scale="pct"' in html
+    assert 'data-csv=' in html
+    # stacked-bar canvas wired into the JS payload
+    assert '"stacked_bar"' in html
 
 
 def test_kpi_strip_present(tmp_path: Path):
