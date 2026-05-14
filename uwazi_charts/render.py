@@ -57,10 +57,18 @@ def render_embed(
     types: list[str],
     chart_plan: list[dict],
     label_map: dict[str, str] | None = None,
+    api_base: str | None = None,
     template_name: str = "embed.html.j2",
 ) -> str:
     """Render the *live* embed — config-only HTML; the browser does the
     aggregation fetch at load time and on URL state changes.
+
+    `instance_url`  — shown in the topbar and footer as the data source.
+    `api_base`      — what the JS prefixes onto `/api/search?...` when
+                      fetching. Default = `instance_url`. Use an empty
+                      string (or a `localhost` URL) when serving the
+                      embed through a local proxy that strips the CORS
+                      restriction Uwazi sets on its public API.
 
     The page contains no entity data at build time. That keeps the file
     tiny (~25 KB), shippable as an Uwazi page, and means the numbers are
@@ -68,8 +76,10 @@ def render_embed(
     """
     env = _env()
     tpl = env.get_template(template_name)
+    base = instance_url.rstrip("/")
     config = {
-        "instance_url": instance_url.rstrip("/"),
+        "instance_url": base,
+        "api_base": (api_base if api_base is not None else base).rstrip("/"),
         "types": list(types),
         "chart_plan": list(chart_plan),
         "label_map": dict(label_map or {}),

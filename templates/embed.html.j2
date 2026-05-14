@@ -588,7 +588,8 @@
     const { params, types, filters } = buildSearchParams(rison);
     $("filter-summary").textContent = summariseFilter(types, filters);
     try {
-      const r = await fetch(`${CONFIG.instance_url}/api/search?` + params.toString(), {
+      const base = CONFIG.api_base ?? CONFIG.instance_url;
+      const r = await fetch(`${base}/api/search?` + params.toString(), {
         headers: { "Accept": "application/json" },
       });
       if (!r.ok) throw new Error("HTTP " + r.status);

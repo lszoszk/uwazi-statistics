@@ -180,6 +180,7 @@ def build_embed_html(
     schema_templates: list[dict] | None,
     type_ids: list[str] | None = None,
     max_charts: int = 12,
+    api_base: str | None = None,
 ) -> str:
     """Build the *live* embed HTML — config-only, no baked entity data.
 
@@ -207,6 +208,7 @@ def build_embed_html(
         types=type_ids,
         chart_plan=chart_plan,
         label_map=label_map,
+        api_base=api_base,
     )
 
 
@@ -224,6 +226,10 @@ def main() -> None:
     ap.add_argument("--types", default="",
                     help="(--embed only) comma-separated template IDs the embed "
                          "should aggregate over. Default: every template in the schema.")
+    ap.add_argument("--api-base", default=None,
+                    help="(--embed only) base URL the embed's browser code uses for "
+                         "fetch(). Defaults to --instance. Set to '' to make API calls "
+                         "relative (works behind a local CORS proxy like scripts/serve_local.py).")
     ap.add_argument("--out", type=Path, default=Path("output/index.html"))
     ap.add_argument("--instance", default=os.environ.get("UWAZI_URL", "https://example.org"),
                     help="Source instance URL (for schema fetch + footer)")
@@ -249,6 +255,7 @@ def main() -> None:
             instance_url=instance,
             schema_templates=schema_templates,
             type_ids=type_ids,
+            api_base=args.api_base,
         )
         out_path = args.out if args.out.name != "index.html" else args.out.with_name("embed.html")
         from uwazi_charts.render import write_dashboard as _write
