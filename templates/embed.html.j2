@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uwazi · live aggregate dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root{
+      --paper:#faf8f3; --paper-2:#f1ede2; --paper-3:#e6e0d0;
+      --line:#d6cfb9; --line-2:#ebe5d2;
+      --ink:#1a1816; --ink-2:#3a3530; --dim:#767064; --dimmer:#a39c8c;
+      --accent:#b86c2c; --accent-2:#9c5821;
+      --serif:"Source Serif 4",Charter,"Iowan Old Style",Georgia,serif;
+      --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);
+         font:15px/1.55 var(--serif);
+         -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    .topbar{display:flex;align-items:center;gap:24px;padding:16px 32px;
+            border-bottom:1px solid var(--line);background:var(--paper-2)}
+    .brand{display:inline-flex;align-items:center;gap:10px;
+           font:600 13px/1 var(--mono);letter-spacing:.06em;color:var(--ink);
+           text-transform:uppercase}
+    .brand .sq{display:inline-block;width:12px;height:12px;background:var(--ink)}
+    .brand .slash{color:var(--dim);font-weight:400}
+    .topbar .meta{margin-left:auto;font:11px/1.5 var(--mono);color:var(--dim);
+                  letter-spacing:.02em}
+    .topbar .meta .live{display:inline-block;width:8px;height:8px;border-radius:50%;
+                        background:#7fb55a;margin-right:6px;vertical-align:middle;
+                        box-shadow:0 0 0 0 rgba(127,181,90,.7);animation:pulse 2s infinite}
+    .topbar .meta.loading .live{background:var(--accent)}
+    .topbar .meta.error   .live{background:#c44}
+    @keyframes pulse{
+      0%{box-shadow:0 0 0 0 rgba(127,181,90,.55)}
+      70%{box-shadow:0 0 0 8px rgba(127,181,90,0)}
+      100%{box-shadow:0 0 0 0 rgba(127,181,90,0)}
+    }
+    .topbar .badge{display:inline-block;padding:2px 7px;border:1px solid var(--line);
+                   background:var(--paper);color:var(--dim);font-weight:500;
+                   margin-left:8px;letter-spacing:.08em;text-transform:uppercase}
+
+    .deckbar{display:flex;align-items:center;gap:12px;padding:10px 32px;
+             background:var(--paper);border-bottom:1px solid var(--line-2)}
+    .deckbar .lbl{font:10px/1 var(--mono);letter-spacing:.14em;color:var(--dim);
+                  text-transform:uppercase}
+    .deckbar .pill{font:11px/1 var(--mono);color:var(--ink-2);padding:4px 10px;
+                   border:1px solid var(--line);background:var(--paper-2)}
+    .deckbar .right{margin-left:auto;display:flex;gap:8px}
+    .deckbar button,.deckbar a{appearance:none;background:transparent;
+        border:1px solid var(--line);padding:5px 11px;cursor:pointer;
+        font:11px/1 var(--mono);letter-spacing:.06em;color:var(--ink-2);
+        text-transform:uppercase;text-decoration:none}
+    .deckbar button:hover,.deckbar a:hover{border-color:var(--ink);color:var(--ink)}
+
+    .kpis{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--paper)}
+    .kpi{flex:1;padding:18px 24px;border-right:1px solid var(--line-2);min-width:160px}
+    .kpi:last-child{border-right:0}
+    .kpi .lbl{font:10px/1 var(--mono);letter-spacing:.14em;color:var(--dim);
+              text-transform:uppercase;margin-bottom:8px}
+    .kpi .val{font:600 28px/1.1 var(--serif);color:var(--ink);
+              font-variant-numeric:tabular-nums}
+    .kpi .sub{font:10px/1.4 var(--mono);color:var(--dimmer);margin-top:6px}
+
+    main{padding:24px 32px 48px;max-width:1480px;margin:0 auto}
+    .section-head{display:flex;align-items:baseline;gap:12px;
+                  margin:8px 0 14px;padding-bottom:8px;
+                  border-bottom:1px dotted var(--line)}
+    .section-head h2{margin:0;font:600 14px/1 var(--mono);letter-spacing:.12em;
+                     color:var(--ink);text-transform:uppercase}
+    .section-head .n{font:10px var(--mono);color:var(--dim);letter-spacing:.06em}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(440px, 1fr));gap:18px}
+    .card{background:#fff;border:1px solid var(--line);padding:16px 18px;
+          display:flex;flex-direction:column;min-height:340px}
+    .card-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+    .card-head .idx{font:500 11px/1 var(--mono);letter-spacing:.12em;color:var(--dimmer)}
+    .card-head h3{margin:0;font:600 13px/1.3 var(--serif);color:var(--ink);flex:1}
+    .card .n{font:10px/1.4 var(--mono);color:var(--dim);letter-spacing:.06em;
+             margin-bottom:10px;text-transform:uppercase}
+    .card .canvas-wrap{flex:1;position:relative;min-height:240px}
+    .card .empty{color:var(--dim);font-style:italic;padding:48px 0;text-align:center;
+                 font:13px var(--serif)}
+
+    .card .ctrl{display:flex;align-items:center;gap:6px;margin-left:auto}
+    .card .ctrl button,.card .ctrl a{appearance:none;background:transparent;
+        border:1px solid var(--line);padding:3px 8px;cursor:pointer;
+        font:10px/1 var(--mono);letter-spacing:.08em;color:var(--dim);
+        text-transform:uppercase;text-decoration:none}
+    .card .ctrl button:hover,.card .ctrl a:hover{color:var(--ink);border-color:var(--ink-2)}
+    .card .ctrl button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+    .card .ctrl .seg{display:inline-flex}
+    .card .ctrl .seg button{border-right-width:0}
+    .card .ctrl .seg button:last-child{border-right-width:1px}
+
+    footer{padding:20px 32px;border-top:1px solid var(--line);background:var(--paper-2);
+           color:var(--dim);font:11px/1.6 var(--mono);letter-spacing:.02em}
+    footer .row{display:flex;flex-wrap:wrap;gap:24px;align-items:baseline;
+                max-width:1480px;margin:0 auto}
+    footer .credit{margin-left:auto;color:var(--dimmer)}
+
+    @media (max-width: 720px){
+      .topbar{flex-wrap:wrap;gap:12px;padding:12px 18px}
+      .topbar .meta{margin-left:0;width:100%}
+      .deckbar{flex-wrap:wrap;padding:10px 18px}
+      .deckbar .right{margin-left:0;width:100%}
+      .kpis{flex-wrap:wrap}
+      .kpi{flex-basis:50%;border-bottom:1px solid var(--line-2)}
+      main{padding:18px}
+      .grid{grid-template-columns:1fr}
+      .card{min-height:300px}
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">
+    <span class="sq"></span>UWAZI<span class="slash">/</span>aggregate
+    <span class="badge">live</span>
+  </span>
+  <div class="meta" id="meta">
+    <span class="live"></span>
+    <span id="meta-text">connecting…</span>
+    &nbsp;·&nbsp; <a href="{{ instance_url }}">{{ instance_url }}</a>
+  </div>
+</header>
+
+<div class="deckbar">
+  <span class="lbl">Filter</span>
+  <span id="filter-summary" class="pill">all entities</span>
+  <span class="lbl" style="margin-left:16px">Source</span>
+  <span class="pill"><a href="{{ instance_url }}/en/library/">/library</a></span>
+  <div class="right">
+    <button type="button" id="btn-refresh" title="Re-fetch aggregations">↻ Refresh</button>
+    <button type="button" id="btn-download-all" title="Download every chart's data as one CSV">⬇ Download all CSVs</button>
+  </div>
+</div>
+
+<div class="kpis" id="kpis">
+  <div class="kpi"><div class="lbl">Entities</div><div class="val" id="kpi-total">—</div><div class="sub" id="kpi-total-sub"></div></div>
+  <div class="kpi"><div class="lbl">Fields charted</div><div class="val" id="kpi-fields">—</div></div>
+  <div class="kpi"><div class="lbl">Last refresh</div><div class="val" id="kpi-time" style="font-size:14px">—</div><div class="sub" id="kpi-time-sub"></div></div>
+</div>
+
+<main>
+  <div class="section-head">
+    <h2>Breakdowns</h2>
+    <span class="n" id="section-n">— charts</span>
+  </div>
+  <div class="grid" id="grid">
+    <!-- chart cards inserted by JS -->
+  </div>
+</main>
+
+<footer>
+  <div class="row">
+    <span>Built with <a href="https://github.com/lszoszk/uwazi-statistics">uwazi-statistics</a></span>
+    <span>· data: <a href="{{ instance_url }}">{{ instance_url }}</a></span>
+    <span>· methodology: aggregations only, no content republished</span>
+    <span class="credit">live mode · {{ generated_at }}</span>
+  </div>
+</footer>
+
+<script>
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Configuration baked in at build time
+  // ─────────────────────────────────────────────────────────────────────────
+  const CONFIG = {{ config_json|safe }};
+  // CONFIG = {
+  //   instance_url: "...",         endpoint base
+  //   types: ["<tplid>", ...],     default templates to aggregate over
+  //   chart_plan: [{field, title, kind}, ...]
+  //   label_map: {key: label},     fallback for buckets that ship only `key`
+  // }
+
+  const SINGLE = "#b86c2c";
+  const SINGLE_LINE = "#9c5821";
+  const RAMP = ["#b86c2c","#3a3530","#9c5821","#767064","#d6cfb9","#a39c8c","#1a1816"];
+
+  const $ = (id) => document.getElementById(id);
+  const meta = $("meta");
+  const metaText = $("meta-text");
+  function setStatus(state, text) {
+    meta.classList.remove("loading","error");
+    if (state === "loading" || state === "error") meta.classList.add(state);
+    metaText.textContent = text;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Minimal RISON decoder (subset — matches Uwazi Library URL `q=` shape)
+  // ─────────────────────────────────────────────────────────────────────────
+  function risonLoads(s) {
+    let i = 0;
+    function err(m){ throw new Error("rison: "+m+" at "+i); }
+    function skipWs(){ while (i<s.length && /\s/.test(s[i])) i++; }
+    function val() {
+      skipWs();
+      const c = s[i];
+      if (c === "!") return bang();
+      if (c === "(") return obj();
+      if (c === "'") return str();
+      return scalar();
+    }
+    function bang() {
+      i++;
+      const c = s[i++];
+      if (c === "t") return true;
+      if (c === "f") return false;
+      if (c === "n") return null;
+      if (c === "(") return arr();
+      err("bad ! "+c);
+    }
+    function obj() {
+      i++;
+      const o = {};
+      skipWs();
+      if (s[i] === ")") { i++; return o; }
+      while (true) {
+        const k = key();
+        skipWs();
+        if (s[i] !== ":") err("expected :");
+        i++;
+        o[k] = val();
+        skipWs();
+        if (s[i] === ",") { i++; continue; }
+        break;
+      }
+      if (s[i] !== ")") err("expected )");
+      i++;
+      return o;
+    }
+    function arr() {
+      i++;
+      const a = [];
+      skipWs();
+      if (s[i] === ")") { i++; return a; }
+      while (true) {
+        a.push(val());
+        skipWs();
+        if (s[i] === ",") { i++; continue; }
+        break;
+      }
+      if (s[i] !== ")") err("expected )");
+      i++;
+      return a;
+    }
+    function str() {
+      i++;
+      let out = "";
+      while (i < s.length && s[i] !== "'") {
+        if (s[i] === "!" && i+1 < s.length) {
+          const n = s[i+1];
+          if (n === "'") { out += "'"; i += 2; continue; }
+          if (n === "!") { out += "!"; i += 2; continue; }
+        }
+        out += s[i++];
+      }
+      if (s[i] !== "'") err("unterminated string");
+      i++;
+      return out;
+    }
+    function key() {
+      skipWs();
+      if (s[i] === "'") return str();
+      const start = i;
+      while (i < s.length && /[a-zA-Z0-9_\-\.]/.test(s[i])) i++;
+      if (i === start) err("expected key");
+      return s.substring(start, i);
+    }
+    function scalar() {
+      const start = i;
+      while (i < s.length && "),:".indexOf(s[i]) === -1) i++;
+      const raw = s.substring(start, i);
+      if (raw === "") err("empty scalar");
+      if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+      return raw;
+    }
+    return val();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  URL state → API params
+  // ─────────────────────────────────────────────────────────────────────────
+  function getUrlRison() {
+    // Prefer ?q=… ; fall back to #q=… (works when embedded behind a SPA router).
+    const m1 = location.search.match(/[?&]q=([^&]+)/);
+    if (m1) try { return risonLoads(decodeURIComponent(m1[1])); } catch (e) { console.warn("bad q=", e); }
+    const m2 = location.hash.match(/[#&]q=([^&]+)/);
+    if (m2) try { return risonLoads(decodeURIComponent(m2[1])); } catch (e) { console.warn("bad #q=", e); }
+    return null;
+  }
+
+  function buildSearchParams(rison) {
+    const p = new URLSearchParams();
+    p.set("limit", "0");
+    let types = CONFIG.types || [];
+    let filters = {};
+    if (rison) {
+      if (Array.isArray(rison.types) && rison.types.length) types = rison.types;
+      if (rison.filters && typeof rison.filters === "object") {
+        for (const [k, v] of Object.entries(rison.filters)) {
+          if (v && Array.isArray(v.values)) filters[k] = v.values;
+        }
+      }
+    }
+    types.forEach(t => p.append("types[]", t));
+    for (const [name, values] of Object.entries(filters)) {
+      values.forEach(v => p.append(`filters[${name}][values][]`, v));
+    }
+    return { params: p, types, filters };
+  }
+
+  function summariseFilter(types, filters) {
+    const tparts = [];
+    const filterCount = Object.values(filters).reduce((a,vs) => a + vs.length, 0);
+    if (filterCount === 0) return "all entities";
+    return `${filterCount} filter${filterCount===1?"":"s"} applied`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Aggregations payload → list of chart dicts (mirror of Python adapter)
+  // ─────────────────────────────────────────────────────────────────────────
+  function bucketCount(b) {
+    if (b.filtered && typeof b.filtered.doc_count === "number") return b.filtered.doc_count;
+    return b.doc_count || 0;
+  }
+  function bucketLabel(b) {
+    if (b.label) return String(b.label);
+    const k = String(b.key || "");
+    return (CONFIG.label_map && CONFIG.label_map[k]) || k;
+  }
+  function safeId(s) {
+    return (s || "").replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "chart";
+  }
+
+  function barFromBuckets(field, title, buckets, topN = 15) {
+    const pairs = buckets.map(b => [bucketLabel(b), bucketCount(b)])
+                         .filter(([_, v]) => v > 0)
+                         .sort((a,b) => b[1]-a[1]);
+    let labels, values;
+    if (pairs.length > topN) {
+      const head = pairs.slice(0, topN);
+      const other = pairs.slice(topN).reduce((s,p) => s + p[1], 0);
+      labels = head.map(p => p[0]).concat(["Other"]);
+      values = head.map(p => p[1]).concat([other]);
+    } else {
+      labels = pairs.map(p => p[0]);
+      values = pairs.map(p => p[1]);
+    }
+    return { id: safeId(field), title, kind: "bar", labels, values, n: values.reduce((a,b)=>a+b,0) };
+  }
+
+  function lineYearFromSessionBuckets(field, title, buckets) {
+    const yearRx = /\b(19|20)\d{2}\b/;
+    const perYear = new Map();
+    buckets.forEach(b => {
+      const label = bucketLabel(b);
+      const m = label && label.match(yearRx);
+      if (!m) return;
+      const y = parseInt(m[0], 10);
+      perYear.set(y, (perYear.get(y) || 0) + bucketCount(b));
+    });
+    const years = [...perYear.keys()].sort((a,b) => a-b);
+    return {
+      id: safeId(field + "_per_year"),
+      title,
+      kind: "line",
+      labels: years,
+      values: years.map(y => perYear.get(y)),
+      n: years.reduce((a,y)=>a+perYear.get(y), 0),
+    };
+  }
+
+  function payloadToCharts(payload) {
+    const aggs = (payload.aggregations && payload.aggregations.all) || {};
+    const out = [];
+    for (const entry of CONFIG.chart_plan) {
+      const agg = aggs[entry.field];
+      if (!agg || !Array.isArray(agg.buckets) || !agg.buckets.length) continue;
+      if (entry.kind === "line_year") {
+        out.push(lineYearFromSessionBuckets(entry.field, entry.title, agg.buckets));
+      } else {
+        out.push(barFromBuckets(entry.field, entry.title, agg.buckets));
+      }
+    }
+    return out;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Render — card grid + chart.js
+  // ─────────────────────────────────────────────────────────────────────────
+  const instances = new Map();
+  const scaleMode = new Map();
+  let currentCharts = [];
+
+  function destroyAllCharts() {
+    for (const inst of instances.values()) inst.destroy();
+    instances.clear();
+  }
+
+  function renderDeck(charts) {
+    const grid = $("grid");
+    grid.innerHTML = "";
+    destroyAllCharts();
+    currentCharts = charts;
+    if (!charts.length) {
+      grid.innerHTML = '<div class="card"><div class="empty">No data for the current filter.</div></div>';
+      $("section-n").textContent = "0 charts";
+      return;
+    }
+    $("section-n").textContent = `${charts.length} chart${charts.length===1?"":"s"}`;
+    charts.forEach((c, idx) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.dataset.chartCard = c.id;
+      card.innerHTML = `
+        <div class="card-head">
+          <span class="idx">${String(idx+1).padStart(2,"0")}</span>
+          <h3>${escapeHtml(c.title)}</h3>
+          <div class="ctrl">
+            <span class="seg" role="group" aria-label="Scale">
+              <button type="button" class="on" data-scale="abs" data-target="${c.id}" title="Absolute counts">#</button>
+              <button type="button" data-scale="pct" data-target="${c.id}" title="Percent of total">%</button>
+            </span>
+            <a href="#" data-csv="${c.id}" title="Download chart data as CSV">CSV</a>
+          </div>
+        </div>
+        <div class="n">n = ${c.n.toLocaleString()} · ${c.labels.length} categories</div>
+        <div class="canvas-wrap"><canvas id="chart-${c.id}" data-chart-id="${c.id}"></canvas></div>
+      `;
+      grid.appendChild(card);
+      buildChart(c);
+    });
+    wireCardControls();
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+  }
+
+  function datasetsFor(c, scale) {
+    const sum = c.values.reduce((a,b)=>a+b, 0);
+    const data = scale === "pct"
+      ? c.values.map(v => sum ? (v/sum)*100 : 0)
+      : c.values;
+    const isLine = c.kind === "line";
+    return [{
+      label: c.title,
+      data,
+      backgroundColor: SINGLE,
+      borderColor: isLine ? SINGLE_LINE : undefined,
+      borderWidth: isLine ? 2 : 0,
+      tension: 0.15,
+      pointRadius: isLine ? 3 : 0,
+      pointBackgroundColor: SINGLE_LINE,
+      fill: false,
+    }];
+  }
+
+  function buildChart(c) {
+    const el = document.getElementById("chart-" + c.id);
+    if (!el || !c.values || !c.values.length) return;
+    const scale = scaleMode.get(c.id) || "abs";
+    const inst = new Chart(el, {
+      type: c.kind,
+      data: { labels: c.labels, datasets: datasetsFor(c, scale) },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: c.kind === "bar" ? "y" : "x",
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#1a1816",
+            titleFont: { family: "IBM Plex Mono", size: 11 },
+            bodyFont: { family: "IBM Plex Mono", size: 11 },
+            padding: 8,
+            callbacks: scale === "pct" ? {
+              label: ctx => `${ctx.dataset.label}: ${(ctx.parsed.y ?? ctx.parsed).toFixed(1)}%`
+            } : {},
+          },
+        },
+        scales: {
+          x: { beginAtZero: true,
+               ticks: { precision: 0, font: { family: "IBM Plex Mono", size: 10 }, color: "#767064" },
+               grid: { color: "#ebe5d2" } },
+          y: { ticks: { autoSkip: false, font: { family: "IBM Plex Mono", size: 10 }, color: "#3a3530",
+                        callback: scale === "pct" ? (v) => v + "%" : undefined },
+               grid: { color: "#ebe5d2" } },
+        },
+      },
+    });
+    instances.set(c.id, inst);
+  }
+
+  function rebuildChart(c) {
+    const old = instances.get(c.id);
+    if (old) { old.destroy(); instances.delete(c.id); }
+    buildChart(c);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Card controls — scale toggle + per-chart CSV
+  // ─────────────────────────────────────────────────────────────────────────
+  function csvCell(v) {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+  function chartToCsv(c) {
+    const rows = c.labels.map((l, i) => [l, c.values[i] ?? 0].map(csvCell).join(","));
+    return "label,value\n" + rows.join("\n") + "\n";
+  }
+  function downloadBlob(name, text) {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function wireCardControls() {
+    document.querySelectorAll("button[data-scale]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.target;
+        const c = currentCharts.find(c => c.id === id);
+        if (!c) return;
+        scaleMode.set(id, btn.dataset.scale);
+        document.querySelectorAll(`button[data-target="${id}"]`).forEach(b => {
+          b.classList.toggle("on", b.dataset.scale === btn.dataset.scale);
+        });
+        rebuildChart(c);
+      });
+    });
+    document.querySelectorAll("a[data-csv]").forEach(a => {
+      a.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const c = currentCharts.find(c => c.id === a.dataset.csv);
+        if (c) downloadBlob(c.id + ".csv", chartToCsv(c));
+      });
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Deck-level CSV bundle — one combined file with section markers
+  // ─────────────────────────────────────────────────────────────────────────
+  function deckToCsv() {
+    if (!currentCharts.length) return "# no data\n";
+    const stamp = new Date().toISOString();
+    const lines = [
+      `# uwazi-statistics export — generated ${stamp}`,
+      `# instance ${CONFIG.instance_url}`,
+      `# filter ${$("filter-summary").textContent}`,
+      `# charts ${currentCharts.length}`,
+      "",
+    ];
+    currentCharts.forEach(c => {
+      lines.push(`# chart: ${c.id}`);
+      lines.push(`# title: ${c.title.replace(/[\r\n]+/g, " ")}`);
+      lines.push("label,value");
+      c.labels.forEach((l, i) => lines.push(`${csvCell(l)},${csvCell(c.values[i] ?? 0)}`));
+      lines.push("");
+    });
+    return lines.join("\n");
+  }
+
+  $("btn-download-all").addEventListener("click", () => {
+    downloadBlob("uwazi-dashboard-export.csv", deckToCsv());
+  });
+  $("btn-refresh").addEventListener("click", () => refresh(true));
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Fetch + refresh
+  // ─────────────────────────────────────────────────────────────────────────
+  async function refresh(force = false) {
+    setStatus("loading", "fetching aggregations…");
+    const rison = getUrlRison();
+    const { params, types, filters } = buildSearchParams(rison);
+    $("filter-summary").textContent = summariseFilter(types, filters);
+    try {
+      const r = await fetch(`${CONFIG.instance_url}/api/search?` + params.toString(), {
+        headers: { "Accept": "application/json" },
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const payload = await r.json();
+      const charts = payloadToCharts(payload);
+      renderDeck(charts);
+      const total = charts.reduce((s, c) => s + c.n, 0);
+      $("kpi-total").textContent = (payload.totalRows || total).toLocaleString();
+      $("kpi-total-sub").textContent = payload.relation === "gte" ? "(≥ 10 000, ES cap)" : "";
+      $("kpi-fields").textContent = String(charts.length);
+      const now = new Date();
+      $("kpi-time").textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      $("kpi-time-sub").textContent = now.toLocaleDateString();
+      setStatus("ok", "ready");
+    } catch (e) {
+      console.error(e);
+      setStatus("error", "fetch failed: " + (e.message || "unknown"));
+      $("grid").innerHTML = `<div class="card"><div class="empty">${escapeHtml(e.message || "Fetch failed")}</div></div>`;
+    }
+  }
+
+  // re-fetch on hash change (when embedded in a SPA that updates #q=…)
+  window.addEventListener("hashchange", () => refresh());
+  window.addEventListener("popstate", () => refresh());
+  refresh();
+</script>
+</body>
+</html>

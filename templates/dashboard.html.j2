@@ -162,7 +162,8 @@
 
 {% for t in tabs %}
 <section class="pane" id="pane-{{ t.slug }}" role="tabpanel"
-         aria-label="{{ t.name }}" {% if not loop.first %}hidden{% endif %}>
+         aria-label="{{ t.name }}" {% if not loop.first %}hidden{% endif %}
+         data-pane-slug="{{ t.slug }}" data-pane-name="{{ t.name }}">
 
   {% if t.kpis %}
   <div class="kpis">
@@ -184,6 +185,11 @@
         · {{ '{:,}'.format(t.count) }} entities
         {% if t.name != "All" %} · <em>{{ t.name }}</em> template{% endif %}
       </span>
+      <a href="#" class="deck-csv" data-deck-csv="{{ t.slug }}"
+         title="Download every chart in this tab as one CSV"
+         style="margin-left:auto;font:10px/1 var(--mono);letter-spacing:.08em;
+                color:var(--dim);text-transform:uppercase;border:1px solid var(--line);
+                padding:4px 10px;text-decoration:none">⬇ all CSVs</a>
     </div>
 
     <div class="grid">
@@ -399,20 +405,62 @@
     return "label,value\n" + rows.join("\n") + "\n";
   }
 
+  function downloadBlob(filename, text) {
+    const blob = new Blob([text], {type: "text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   document.querySelectorAll('a[data-csv]').forEach(a => {
     a.addEventListener('click', (ev) => {
       ev.preventDefault();
       const c = _byId.get(a.dataset.csv);
       if (!c) return;
-      const blob = new Blob([chartToCsv(c)], {type: "text/csv;charset=utf-8"});
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = c.id + ".csv";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadBlob(c.id + ".csv", chartToCsv(c));
+    });
+  });
+
+  // ───── deck-level CSV bundle (one combined file per tab) ─────
+  function paneToBundle(slug) {
+    const pane = document.querySelector(`.pane[data-pane-slug="${slug}"]`);
+    if (!pane) return "";
+    const name = pane.dataset.paneName || slug;
+    const chartIds = [...pane.querySelectorAll('canvas[data-chart-id]')]
+      .map(el => el.dataset.chartId);
+    const stamp = new Date().toISOString();
+    const lines = [
+      `# uwazi-statistics export — generated ${stamp}`,
+      `# tab: ${name}`,
+      `# charts: ${chartIds.length}`,
+      "",
+    ];
+    chartIds.forEach(id => {
+      const c = _byId.get(id);
+      if (!c) return;
+      lines.push(`# chart: ${c.id}`);
+      lines.push(`# title: ${(c.title || "").replace(/[\r\n]+/g, " ")}`);
+      if (c.kind === "stacked_bar") {
+        lines.push(["year", ...c.datasets.map(d => d.label)].map(csvCell).join(","));
+        c.labels.forEach((y, i) => {
+          lines.push([y, ...c.datasets.map(d => d.values[i] ?? 0)].map(csvCell).join(","));
+        });
+      } else {
+        lines.push("label,value");
+        c.labels.forEach((l, i) => lines.push([l, c.values[i] ?? 0].map(csvCell).join(",")));
+      }
+      lines.push("");
+    });
+    return lines.join("\n");
+  }
+
+  document.querySelectorAll('a[data-deck-csv]').forEach(a => {
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const slug = a.dataset.deckCsv;
+      downloadBlob(`uwazi-dashboard-${slug}.csv`, paneToBundle(slug));
     });
   });
 

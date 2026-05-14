@@ -51,6 +51,36 @@ def render_dashboard(
     )
 
 
+def render_embed(
+    *,
+    instance_url: str,
+    types: list[str],
+    chart_plan: list[dict],
+    label_map: dict[str, str] | None = None,
+    template_name: str = "embed.html.j2",
+) -> str:
+    """Render the *live* embed — config-only HTML; the browser does the
+    aggregation fetch at load time and on URL state changes.
+
+    The page contains no entity data at build time. That keeps the file
+    tiny (~25 KB), shippable as an Uwazi page, and means the numbers are
+    always current with the live instance.
+    """
+    env = _env()
+    tpl = env.get_template(template_name)
+    config = {
+        "instance_url": instance_url.rstrip("/"),
+        "types": list(types),
+        "chart_plan": list(chart_plan),
+        "label_map": dict(label_map or {}),
+    }
+    return tpl.render(
+        instance_url=instance_url,
+        config_json=json.dumps(config, ensure_ascii=False),
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+
+
 def write_dashboard(html: str, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")

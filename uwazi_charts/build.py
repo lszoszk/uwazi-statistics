@@ -16,10 +16,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from uwazi_charts import aggregations as agg_mod
 from uwazi_charts import charts as charts_mod
 from uwazi_charts import discover, flatten
 from uwazi_charts.fetch import FetchConfig, fetch_templates, load_cache
-from uwazi_charts.render import render_dashboard, write_dashboard
+from uwazi_charts.render import render_dashboard, render_embed, write_dashboard
 
 # Fallback profile if /api/templates is unreachable AND no fields are found
 # by the schema-less inference. Tuned to the UPR Info Database shape so the
@@ -173,6 +174,42 @@ def build_html_from_df(
     )
 
 
+def build_embed_html(
+    *,
+    instance_url: str,
+    schema_templates: list[dict] | None,
+    type_ids: list[str] | None = None,
+    max_charts: int = 12,
+) -> str:
+    """Build the *live* embed HTML — config-only, no baked entity data.
+
+    `schema_templates` is the response from `/api/templates`; we use it for
+    chart-plan default + a `label_map` fallback for buckets that only carry
+    a UUID `key`. `type_ids` defaults to every template the schema returns,
+    but in practice the caller passes the Recommendation template ID."""
+    if not schema_templates:
+        raise ValueError("schema_templates is required for --embed (drives the chart plan)")
+    if not type_ids:
+        # Default to all non-system templates (in practice: pass the Recommendation ID)
+        type_ids = [t.get("_id") or t.get("id") for t in schema_templates if t.get("_id") or t.get("id")]
+    chart_plan = agg_mod.default_chart_plan(
+        schema_templates, type_ids=type_ids, max_charts=max_charts)
+    # Build a key→label fallback: collect every Thesaurus / dictionary value
+    # we can see across the schema. Useful when a bucket key is a UUID and
+    # the bucket itself lacks a `label`.
+    label_map: dict[str, str] = {}
+    for tpl in schema_templates:
+        tid = tpl.get("_id") or tpl.get("id")
+        if tid and tpl.get("name"):
+            label_map[tid] = tpl["name"]
+    return render_embed(
+        instance_url=instance_url,
+        types=type_ids,
+        chart_plan=chart_plan,
+        label_map=label_map,
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     src = ap.add_mutually_exclusive_group()
@@ -180,12 +217,44 @@ def main() -> None:
                      default=Path("cache/entities.parquet"))
     src.add_argument("--sample", action="store_true",
                      help="Use synthetic fixture data (no network, no cache needed)")
+    ap.add_argument("--embed", action="store_true",
+                    help="Build the live-embed HTML — no baked data; browser fetches "
+                         "aggregations from --instance on load. Honours URL `?q=…` "
+                         "(RISON) for filter coupling with an upstream Library page.")
+    ap.add_argument("--types", default="",
+                    help="(--embed only) comma-separated template IDs the embed "
+                         "should aggregate over. Default: every template in the schema.")
     ap.add_argument("--out", type=Path, default=Path("output/index.html"))
     ap.add_argument("--instance", default=os.environ.get("UWAZI_URL", "https://example.org"),
                     help="Source instance URL (for schema fetch + footer)")
     ap.add_argument("--no-schema", action="store_true",
                     help="Skip /api/templates fetch; use DataFrame inference only")
     args = ap.parse_args()
+
+    if args.embed:
+        # Live embed needs the schema (for chart plan + label fallback). No
+        # entity-row fetch — the browser does aggregations directly.
+        if not args.instance:
+            ap.error("--embed requires --instance (where the live API lives)")
+        instance = args.instance.rstrip("/")
+        try:
+            schema_templates = fetch_templates(FetchConfig(
+                instance_url=instance,
+                user_agent=os.environ.get("UWAZI_USER_AGENT", "uwazi-charts-poc"),
+            ))
+        except Exception as e:
+            ap.error(f"--embed cannot proceed without /api/templates (got: {e})")
+        type_ids = [t for t in args.types.split(",") if t.strip()] or None
+        html = build_embed_html(
+            instance_url=instance,
+            schema_templates=schema_templates,
+            type_ids=type_ids,
+        )
+        out_path = args.out if args.out.name != "index.html" else args.out.with_name("embed.html")
+        from uwazi_charts.render import write_dashboard as _write
+        _write(html, out_path)
+        print(f"[build] embed → {out_path} ({len(html)/1024:.1f} KB, {len(schema_templates)} templates)")
+        return
 
     if args.sample:
         # Lazy import so the runtime dep on tests/ isn't required for the

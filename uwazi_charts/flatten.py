@@ -85,3 +85,60 @@ def add_year_column(df: pd.DataFrame, src: str = "creationDate", dst: str = "yea
     df = df.copy()
     df[dst] = pd.to_datetime(df[src], unit="ms", utc=True, errors="coerce").dt.year
     return df
+
+
+import re as _re
+
+_SESSION_YEAR_RX = _re.compile(r"\b(19|20)\d{2}\b")
+
+
+def _extract_session_year(metadata: dict | None, session_key: str = "session") -> int | None:
+    """Pull the year out of a Session relationship's label.
+
+    Sessions on the UPR Info instance carry labels like `"44 - November 2023"`.
+    We grab the first 4-digit year out of that label. Returns None if no
+    session, no label, or no year-shaped substring.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    items = metadata.get(session_key) or []
+    for it in items if isinstance(items, list) else [items]:
+        if not isinstance(it, dict):
+            continue
+        label = it.get("label") or ""
+        m = _SESSION_YEAR_RX.search(label)
+        if m:
+            return int(m.group(0))
+    return None
+
+
+def add_session_year_column(
+    df: pd.DataFrame,
+    *,
+    src: str = "session",
+    dst: str = "year",
+    overwrite: bool = False,
+) -> pd.DataFrame:
+    """Add a `year` column derived from the Session relationship label.
+
+    Cycle/session timing is the *meaningful* time axis for UPR data —
+    `creationDate` records when the entity was added to Uwazi, which can lag
+    the underlying review by years. Use this in preference to
+    `add_year_column` whenever the data carries a `session` relationship.
+
+    `overwrite=False` (default) preserves an existing `year` column for any
+    row where session-year parsing fails — useful when chaining with
+    `add_year_column(src="creationDate")` as a backstop.
+    """
+    if "metadata" not in df.columns:
+        raise KeyError("DataFrame has no 'metadata' column")
+    df = df.copy()
+    sess_year = df["metadata"].apply(lambda m: _extract_session_year(m, src))
+    if dst in df.columns and not overwrite:
+        # Fill only the rows where session-year parsed successfully.
+        df[dst] = sess_year.where(sess_year.notna(), df[dst])
+    else:
+        df[dst] = sess_year
+    # Cast to nullable Int (preserves NaN cleanly across pandas versions).
+    df[dst] = df[dst].astype("Int64")
+    return df

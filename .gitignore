@@ -20,6 +20,9 @@ cache/
 output/
 .env
 
+# Local audit notes (UI inspections, API probes, screenshots) — never committed
+audit/
+
 # Test artifacts
 .pytest_cache/
 .coverage

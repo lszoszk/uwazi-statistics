@@ -33,6 +33,35 @@ def test_flatten_round_trip():
     assert df["year"].between(2015, 2025).all()
 
 
+def test_add_session_year_column_extracts_year_from_label():
+    """Real-world session labels look like '44 - November 2023'."""
+    import pandas as pd
+    df = pd.DataFrame([
+        {"metadata": {"session": [{"label": "44 - November 2023"}]}},
+        {"metadata": {"session": [{"label": "1 - April 2008"}]}},
+        {"metadata": {"session": [{"label": "no year here"}]}},
+        {"metadata": {"session": []}},
+        {"metadata": None},
+    ])
+    out = flatten.add_session_year_column(df)
+    # Use dropna() to get the parsed years; check NA-count separately.
+    parsed = out["year"].dropna().astype(int).tolist()
+    assert parsed == [2023, 2008]
+    assert out["year"].isna().sum() == 3
+
+
+def test_add_session_year_column_preserves_existing_when_overwrite_false():
+    """Backstop: if a row has year already (from creationDate) AND no session,
+    keep the original year."""
+    import pandas as pd
+    df = pd.DataFrame([
+        {"metadata": {"session": [{"label": "44 - November 2023"}]}, "year": 1999},
+        {"metadata": {"session": []},                                 "year": 2017},
+    ])
+    out = flatten.add_session_year_column(df, overwrite=False)
+    assert out["year"].astype(int).tolist() == [2023, 2017]
+
+
 def test_chart_has_labels_and_values():
     df = make_sample(100)
     df = flatten.add_label_column(df, "regional_group", multi=False)
